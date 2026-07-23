@@ -77,118 +77,48 @@ class CubocRobot:
 
     def update_hardware_components(self, dt):
         """
-        Hardware constraint layer. Processes abstract velocity requests, checks limits, 
-        and integrates component positions on the main loop.
+        Hardware constraint layer.
+
+        IMPORTANT:
+        Fin states are now integrated by solve_ivp, not here.
+
+        This function is responsible only for updating hardware
+        quantities that are intentionally coarse-grained (currently
+        just the thruster throttle).
         """
 
-        total_inertia_before = self.calculate_total_inertia()
-        internal_momentum_before = self.calculate_internal_fin_angular_momentum()
-        total_angular_momentum_before = total_inertia_before * self.angular_velocity + internal_momentum_before
+        # Fin states are now part of the solve_ivp state vector:
+        #
+        #   left_angle
+        #   left_omega
+        #   left_length
+        #
+        #   right_angle
+        #   right_omega
+        #   right_length
+        #
+        # Therefore:
+        #
+        #   - NO fin angle integration
+        #   - NO fin velocity integration
+        #   - NO fin length integration
+        #   - NO joint limits
+        #   - NO conservation projection
+        #
+        # All of the above is handled by the simulator.
 
-        # 1. Handle Fins Limits and Kinematic Integration
-        fins = [
-            {
-                "fin": self.left_fin,  
-                "angle_min": self.cuboc_config.tentacle_angle_min, "angle_max": self.cuboc_config.tentacle_angle_max,
-                "len_min": self.cuboc_config.fin_base_length * 0.1, "len_max": self.cuboc_config.fin_base_length * 2.5
-            },
-            {
-                "fin": self.right_fin, 
-                "angle_min": self.cuboc_config.tentacle_angle_min, "angle_max": self.cuboc_config.tentacle_angle_max,
-                "len_min": self.cuboc_config.fin_base_length * 0.1, "len_max": self.cuboc_config.fin_base_length * 2.5
-            }
-        ]
+        # Handle Jet Thruster Integration
+        self.thruster.throttle += (
+            self.thruster.requested_throttle_velocity * dt
+        )
 
-        for item in fins:
-            fin = item["fin"]
-            
-            # Net actuator torque with angular-velocity damping
-            commanded_torque = fin.requested_angular_acceleration
-            net_torque = commanded_torque - fin.fin_angular_damping_gain * fin.relative_angular_velocity
-
-            # Convert torque to angular acceleration
-            angular_acceleration = net_torque #/ fin.moment_of_inertia
-
-            # Clamp acceleration
-            angular_acceleration = float(np.clip(angular_acceleration, -fin.fin_angular_acceleration_max, fin.fin_angular_acceleration_max))
-
-
-            # Enforce angular velocity limits BEFORE computing motor torque
-            if (
-                fin.relative_angular_velocity >= fin.fin_angular_velocity_max
-                and angular_acceleration > 0.0
-            ):
-                angular_acceleration = 0.0
-
-            elif (
-                fin.relative_angular_velocity <= -fin.fin_angular_velocity_max
-                and angular_acceleration < 0.0
-            ):
-                angular_acceleration = 0.0
-
-            # At the lower limit, block motion and acceleration farther downward
-            if fin.relative_angle <= item["angle_min"]:
-                fin.relative_angle = item["angle_min"]
-
-                if fin.relative_angular_velocity < 0.0:
-                    fin.relative_angular_velocity = 0.0
-
-                if angular_acceleration < 0.0:
-                    angular_acceleration = 0.0
-
-            # At the upper limit, block motion and acceleration farther upward
-            elif fin.relative_angle >= item["angle_max"]:
-                fin.relative_angle = item["angle_max"]
-
-                if fin.relative_angular_velocity > 0.0:
-                    fin.relative_angular_velocity = 0.0
-
-                if angular_acceleration > 0.0:
-                    angular_acceleration = 0.0
-            
-            # Integrate acceleration into velocity
-            fin.relative_angular_velocity += angular_acceleration * dt
-
-            # Clamp angular velocity
-            fin.relative_angular_velocity = float(np.clip(fin.relative_angular_velocity, -fin.fin_angular_velocity_max, fin.fin_angular_velocity_max))
-
-            # Integrate velocity into angle
-            fin.relative_angle += fin.relative_angular_velocity * dt
-
-            # Catch crossing a limit during this timestep
-            if fin.relative_angle < item["angle_min"]:
-                fin.relative_angle = item["angle_min"]
-                fin.relative_angular_velocity = 0.0
-            elif fin.relative_angle > item["angle_max"]:
-                fin.relative_angle = item["angle_max"]
-                fin.relative_angular_velocity = 0.0
-
-            # Length limits check -----
-            fin.relative_linear_velocity = fin.requested_linear_velocity
-            if fin.length <= item["len_min"] and fin.requested_linear_velocity < 0:
-                fin.length = item["len_min"]
-                fin.relative_linear_velocity = 0.0 
-
-            elif fin.length >= item["len_max"] and fin.requested_linear_velocity > 0:
-                fin.length = item["len_max"]
-                fin.relative_linear_velocity = 0.0   
-            
-            # Update length state
-            fin.length += fin.relative_linear_velocity * dt
-
-        total_inertia_after = self.calculate_total_inertia()
-        internal_momentum_after = self.calculate_internal_fin_angular_momentum()
-
-        self.angular_velocity = (total_angular_momentum_before - internal_momentum_after) / total_inertia_after
-
-
-        # 2. Handle Jet Thruster Integration
-        self.thruster.throttle += self.thruster.requested_throttle_velocity * dt
         if self.thruster.throttle <= 0.0:
+
             self.thruster.throttle = 0.0
             self.thruster.requested_throttle_velocity = 0.0
-            
+
         elif self.thruster.throttle >= 1.0:
+
             self.thruster.throttle = 1.0
             self.thruster.requested_throttle_velocity = 0.0
 
@@ -249,3 +179,50 @@ class CubocRobot:
             self.left_fin.inertia_about_hinge * self.left_fin.relative_angular_velocity
             + self.right_fin.inertia_about_hinge * self.right_fin.relative_angular_velocity
         )
+
+    def build_state_vector(self):
+
+        return [
+
+            self.position[0],
+            self.position[1],
+
+            self.velocity[0],
+            self.velocity[1],
+
+            self.heading,
+            self.angular_velocity,
+
+            self.left_fin.relative_angle,
+            self.left_fin.relative_angular_velocity,
+            self.left_fin.length,
+
+            self.right_fin.relative_angle,
+            self.right_fin.relative_angular_velocity,
+            self.right_fin.length
+
+        ]
+
+
+    def apply_state_vector(self, state):
+
+        self.position = np.array([
+            state[0],
+            state[1]
+        ])
+
+        self.velocity = np.array([
+            state[2],
+            state[3]
+        ])
+
+        self.heading = state[4]
+        self.angular_velocity = state[5]
+
+        self.left_fin.relative_angle = state[6]
+        self.left_fin.relative_angular_velocity = state[7]
+        self.left_fin.length = state[8]
+
+        self.right_fin.relative_angle = state[9]
+        self.right_fin.relative_angular_velocity = state[10]
+        self.right_fin.length = state[11]
