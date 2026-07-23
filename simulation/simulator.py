@@ -25,8 +25,11 @@ class Simulator:
         F_net = (F_fluid + F_propulsion)
         T_net = (T_fluid + T_propulsion)
 
-        linear_accel = (F_net / robot.dry_mass)
-        angular_accel = (T_net / robot.dry_moment_of_inertia)
+        linear_accel = (
+            F_net
+            / robot.calculate_total_mass()
+        )
+        angular_accel = T_net / robot.calculate_total_inertia()
 
         return [
 

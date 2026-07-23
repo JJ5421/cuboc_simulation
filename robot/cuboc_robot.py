@@ -80,6 +80,11 @@ class CubocRobot:
         Hardware constraint layer. Processes abstract velocity requests, checks limits, 
         and integrates component positions on the main loop.
         """
+
+        total_inertia_before = self.calculate_total_inertia()
+        internal_momentum_before = self.calculate_internal_fin_angular_momentum()
+        total_angular_momentum_before = total_inertia_before * self.angular_velocity + internal_momentum_before
+
         # 1. Handle Fins Limits and Kinematic Integration
         fins = [
             {
@@ -107,6 +112,20 @@ class CubocRobot:
             # Clamp acceleration
             angular_acceleration = float(np.clip(angular_acceleration, -fin.fin_angular_acceleration_max, fin.fin_angular_acceleration_max))
 
+
+            # Enforce angular velocity limits BEFORE computing motor torque
+            if (
+                fin.relative_angular_velocity >= fin.fin_angular_velocity_max
+                and angular_acceleration > 0.0
+            ):
+                angular_acceleration = 0.0
+
+            elif (
+                fin.relative_angular_velocity <= -fin.fin_angular_velocity_max
+                and angular_acceleration < 0.0
+            ):
+                angular_acceleration = 0.0
+
             # At the lower limit, block motion and acceleration farther downward
             if fin.relative_angle <= item["angle_min"]:
                 fin.relative_angle = item["angle_min"]
@@ -126,7 +145,7 @@ class CubocRobot:
 
                 if angular_acceleration > 0.0:
                     angular_acceleration = 0.0
-
+            
             # Integrate acceleration into velocity
             fin.relative_angular_velocity += angular_acceleration * dt
 
@@ -157,6 +176,12 @@ class CubocRobot:
             # Update length state
             fin.length += fin.relative_linear_velocity * dt
 
+        total_inertia_after = self.calculate_total_inertia()
+        internal_momentum_after = self.calculate_internal_fin_angular_momentum()
+
+        self.angular_velocity = (total_angular_momentum_before - internal_momentum_after) / total_inertia_after
+
+
         # 2. Handle Jet Thruster Integration
         self.thruster.throttle += self.thruster.requested_throttle_velocity * dt
         if self.thruster.throttle <= 0.0:
@@ -166,3 +191,61 @@ class CubocRobot:
         elif self.thruster.throttle >= 1.0:
             self.thruster.throttle = 1.0
             self.thruster.requested_throttle_velocity = 0.0
+
+    def calculate_total_mass(self):
+
+        return (
+            self.body.mass
+            + self.left_fin.fin_mass
+            + self.right_fin.fin_mass
+        )
+
+    def calculate_total_inertia(self):
+
+        left_position, _, _, _ = (
+            self.left_fin.calculate_global_kinematics(
+                self.position,
+                self.velocity,
+                self.angular_velocity,
+                self.heading,
+                self.body_width
+            )
+        )
+
+        right_position, _, _, _ = (
+            self.right_fin.calculate_global_kinematics(
+                self.position,
+                self.velocity,
+                self.angular_velocity,
+                self.heading,
+                self.body_width
+            )
+        )
+
+        left_offset = left_position - self.position
+        right_offset = right_position - self.position
+
+        left_inertia = (
+            self.left_fin.inertia_about_center
+            + self.left_fin.fin_mass
+            * np.dot(left_offset, left_offset)
+        )
+
+        right_inertia = (
+            self.right_fin.inertia_about_center
+            + self.right_fin.fin_mass
+            * np.dot(right_offset, right_offset)
+        )
+
+        return (
+            self.body.inertia
+            + left_inertia
+            + right_inertia
+        )
+
+    def calculate_internal_fin_angular_momentum(self):
+
+        return (
+            self.left_fin.inertia_about_hinge * self.left_fin.relative_angular_velocity
+            + self.right_fin.inertia_about_hinge * self.right_fin.relative_angular_velocity
+        )
