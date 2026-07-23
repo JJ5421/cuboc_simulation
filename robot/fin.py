@@ -14,20 +14,21 @@ class Fin:
 
         self.fin_mass = mass
 
-        # DYNAMIC GEOMETRY STATES (Read directly by Physics / Visualizer)
+        # dynamic geometry
         self.length = base_length
         self.relative_angle = 0.0
         
-        # JOINT SPEEDS AND MAXES (Read directly by Physics)
+        # Fin rotation control states
         self.relative_angular_velocity = 0.0
-        self.relative_linear_velocity = 0.0
+        self.relative_angular_acceleration = 0.0
+        self.linear_velocity = 0.0
 
+        # maxes for the above
         self.fin_angular_acceleration_max = ang_accel_max
         self.fin_angular_velocity_max = ang_velocity_max
         self.fin_angular_damping_gain = ang_damping_gain
 
-        
-        # CONTROL INTERFACE (Written by manual keyboard)
+        # control requests (interface)
         self.requested_angular_acceleration = 0.0   
         self.requested_linear_velocity = 0.0
 

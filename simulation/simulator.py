@@ -43,8 +43,8 @@ class Simulator:
         length_max = robot.cuboc_config.fin_base_length * 2.5
 
         # Fin angular accelerations
-        left_alpha = robot.left_fin.requested_angular_acceleration - robot.left_fin.fin_angular_damping_gain * left_omega
-        right_alpha = robot.right_fin.requested_angular_acceleration - robot.right_fin.fin_angular_damping_gain * right_omega
+        left_alpha = robot.left_fin.relative_angular_acceleration - robot.left_fin.fin_angular_damping_gain * left_omega *  np.abs(left_omega)
+        right_alpha = robot.right_fin.relative_angular_acceleration - robot.right_fin.fin_angular_damping_gain * right_omega * np.abs(right_omega)
 
         left_alpha = float(np.clip(left_alpha, -robot.left_fin.fin_angular_acceleration_max, robot.left_fin.fin_angular_acceleration_max))
         right_alpha = float(np.clip(right_alpha, -robot.right_fin.fin_angular_acceleration_max, robot.right_fin.fin_angular_acceleration_max))
@@ -81,8 +81,8 @@ class Simulator:
             right_omega = 0.0
 
         # Fin extension rates
-        left_length_dot = robot.left_fin.requested_linear_velocity
-        right_length_dot = robot.right_fin.requested_linear_velocity
+        left_length_dot = robot.left_fin.linear_velocity
+        right_length_dot = robot.right_fin.linear_velocity
 
         if left_length <= length_min and left_length_dot < 0:
             left_length_dot = 0

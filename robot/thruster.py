@@ -8,11 +8,11 @@ class JetThruster:
         self.max_thrust = max_thrust_newtons
         self.local_position = local_position
         
-        # DYNAMIC PHYSICAL VARIABLE (Read directly by Physics / Visualizer)
-        self.throttle = 0.0                     # Values scale strictly from 0.0 to 1.0
+        # actual thrust output
+        self.throttle = 0.0 
         
-        # CONTROL INTERFACE (Written by manual keyboard)
-        self.requested_throttle_velocity = 0.0  # Ramping velocity intent (units/sec)
+        # control interface request
+        self.requested_throttle_velocity = 0.0  # jerk in accelerations/sec
 
     def compute_thrust_forces(self, body_heading):
         """

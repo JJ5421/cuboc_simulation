@@ -76,51 +76,25 @@ class CubocRobot:
         return total_force, total_torque
 
     def update_hardware_components(self, dt):
-        """
-        Hardware constraint layer.
 
-        IMPORTANT:
-        Fin states are now integrated by solve_ivp, not here.
+        # Handle fin movement integration
+        self.left_fin.relative_angular_acceleration = self.left_fin.requested_angular_acceleration
+        self.right_fin.relative_angular_acceleration = self.right_fin.requested_angular_acceleration
 
-        This function is responsible only for updating hardware
-        quantities that are intentionally coarse-grained (currently
-        just the thruster throttle).
-        """
+        # Handle fin extension
+        self.left_fin.linear_velocity = self.left_fin.requested_linear_velocity
+        self.right_fin.linear_velocity = self.right_fin.requested_linear_velocity
 
-        # Fin states are now part of the solve_ivp state vector:
-        #
-        #   left_angle
-        #   left_omega
-        #   left_length
-        #
-        #   right_angle
-        #   right_omega
-        #   right_length
-        #
-        # Therefore:
-        #
-        #   - NO fin angle integration
-        #   - NO fin velocity integration
-        #   - NO fin length integration
-        #   - NO joint limits
-        #   - NO conservation projection
-        #
-        # All of the above is handled by the simulator.
-
-        # Handle Jet Thruster Integration
-        self.thruster.throttle += (
-            self.thruster.requested_throttle_velocity * dt
-        )
-
-        if self.thruster.throttle <= 0.0:
-
-            self.thruster.throttle = 0.0
+        # Handle thruster integration
+        if self.thruster.throttle <= 0.0 and self.thruster.requested_throttle_velocity < 0.0:
             self.thruster.requested_throttle_velocity = 0.0
 
-        elif self.thruster.throttle >= 1.0:
-
-            self.thruster.throttle = 1.0
+        elif self.thruster.throttle >= 1.0 and self.thruster.requested_throttle_velocity > 0.0:
             self.thruster.requested_throttle_velocity = 0.0
+        
+        self.thruster.throttle += (self.thruster.requested_throttle_velocity * dt)
+
+
 
     def calculate_total_mass(self):
 
@@ -202,7 +176,6 @@ class CubocRobot:
             self.right_fin.length
 
         ]
-
 
     def apply_state_vector(self, state):
 
