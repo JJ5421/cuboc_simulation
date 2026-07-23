@@ -27,8 +27,11 @@ class CubocRobot:
             depth=self.cuboc_config.fin_depth,
             mass=self.cuboc_config.fin_mass,
             ang_accel_max=self.cuboc_config.fin_angular_acceleration_max,
-            ang_velocity_max=self.cuboc_config.fin_angular_velocity_max,
+            #ang_velocity_max=self.cuboc_config.fin_angular_velocity_max,
             ang_damping_gain=self.cuboc_config.fin_angular_damping_gain,
+            ext_spd_max=self.cuboc_config.fin_extension_speed_max,
+            min_tent_fact=self.cuboc_config.tentacle_min_length_factor,
+            max_tent_fact=self.cuboc_config.tentacle_max_length_factor,
             side_sign=-1,
             attachment_offset_y=0.0
         )
@@ -39,20 +42,25 @@ class CubocRobot:
             depth=self.cuboc_config.fin_depth,
             mass=self.cuboc_config.fin_mass,
             ang_accel_max=self.cuboc_config.fin_angular_acceleration_max,
-            ang_velocity_max=self.cuboc_config.fin_angular_velocity_max,
+            #ang_velocity_max=self.cuboc_config.fin_angular_velocity_max,
             ang_damping_gain=self.cuboc_config.fin_angular_damping_gain,
+            ext_spd_max=self.cuboc_config.fin_extension_speed_max,
+            min_tent_fact=self.cuboc_config.tentacle_min_length_factor,
+            max_tent_fact=self.cuboc_config.tentacle_max_length_factor,
             side_sign=1,
             attachment_offset_y=0.0
         )
         
         # Mount fixed jet thruster at the back center of the main body chassis
-        self.thruster = JetThruster(max_thrust_newtons=self.cuboc_config.max_thrust, local_position=np.array([0.0, -self.cuboc_config.body_length / 2.0]))
+        self.thruster = JetThruster(max_thrust_newtons=self.cuboc_config.max_thrust, max_jerk_units=self.cuboc_config.max_jerk, local_position=np.array([0.0, -self.cuboc_config.body_length / 2.0]))
         
-        # Absolute 2D Cartesian Dynamics State Space Trackers
-        self.position = np.array([4.0, 4.0]) # to start:
+        # Absolute 2D Cartesian Dynamics State Space Trackers (dummy values)
+        self.position = np.array([0.0, 0.0])
         self.velocity = np.array([0.0, 0.0])        
         self.heading = 0.0                          
-        self.angular_velocity = 0.0                 
+        self.angular_velocity = 0.0                
+
+        self.controller = 'N/A'
 
     def calculate_hydrodynamics(self, physics):
         """
@@ -82,27 +90,31 @@ class CubocRobot:
         self.right_fin.relative_angular_acceleration = self.right_fin.requested_angular_acceleration
 
         # Handle fin extension
+        if((self.left_fin.length <= self.left_fin.base_length*self.left_fin.fin_min_factor and self.left_fin.requested_linear_velocity <= 0) or (self.left_fin.length >= self.left_fin.base_length*self.left_fin.fin_max_factor and self.left_fin.requested_linear_velocity >= 0)):
+            self.left_fin.requested_linear_velocity = 0
+        if((self.right_fin.length <= self.right_fin.base_length*self.right_fin.fin_min_factor and self.right_fin.requested_linear_velocity <= 0) or (self.right_fin.length >= self.right_fin.base_length*self.right_fin.fin_max_factor and self.right_fin.requested_linear_velocity >= 0)):
+            self.right_fin.requested_linear_velocity = 0
+
+
         self.left_fin.linear_velocity = self.left_fin.requested_linear_velocity
         self.right_fin.linear_velocity = self.right_fin.requested_linear_velocity
 
-        # Handle thruster integration
-        if self.thruster.throttle <= 0.0 and self.thruster.requested_throttle_velocity < 0.0:
-            self.thruster.requested_throttle_velocity = 0.0
+        # Thruster control
+        if (self.controller == "manual"):
+            # Handle thruster integration
+            if self.thruster.thrust <= 0.0 and self.thruster.requested_throttle_jerk < 0.0:
+                self.thruster.requested_throttle_jerk = 0.0
 
-        elif self.thruster.throttle >= 1.0 and self.thruster.requested_throttle_velocity > 0.0:
-            self.thruster.requested_throttle_velocity = 0.0
-        
-        self.thruster.throttle += (self.thruster.requested_throttle_velocity * dt)
-
-
+            elif self.thruster.thrust >= self.thruster.max_thrust and self.thruster.requested_throttle_jerk > 0.0:
+                self.thruster.requested_throttle_jerk = 0.0
+            
+            self.thruster.thrust += (self.thruster.requested_throttle_jerk * dt)
+        else:
+            self.thruster.thrust = self.thruster.requested_thrust
 
     def calculate_total_mass(self):
 
-        return (
-            self.body.mass
-            + self.left_fin.fin_mass
-            + self.right_fin.fin_mass
-        )
+        return (self.body.mass + self.left_fin.fin_mass + self.right_fin.fin_mass)
 
     def calculate_total_inertia(self):
 
@@ -129,6 +141,7 @@ class CubocRobot:
         left_offset = left_position - self.position
         right_offset = right_position - self.position
 
+        # parallel axis theorem
         left_inertia = (
             self.left_fin.inertia_about_center
             + self.left_fin.fin_mass
@@ -141,18 +154,11 @@ class CubocRobot:
             * np.dot(right_offset, right_offset)
         )
 
-        return (
-            self.body.inertia
-            + left_inertia
-            + right_inertia
-        )
+        return (self.body.inertia + left_inertia + right_inertia)
 
     def calculate_internal_fin_angular_momentum(self):
 
-        return (
-            self.left_fin.inertia_about_hinge * self.left_fin.relative_angular_velocity
-            + self.right_fin.inertia_about_hinge * self.right_fin.relative_angular_velocity
-        )
+        return (self.left_fin.inertia_about_hinge * self.left_fin.relative_angular_velocity + self.right_fin.inertia_about_hinge * self.right_fin.relative_angular_velocity)
 
     def build_state_vector(self):
 
@@ -174,7 +180,6 @@ class CubocRobot:
             self.right_fin.relative_angle,
             self.right_fin.relative_angular_velocity,
             self.right_fin.length
-
         ]
 
     def apply_state_vector(self, state):

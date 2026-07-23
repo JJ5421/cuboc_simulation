@@ -1,7 +1,7 @@
 import numpy as np
 
 class Fin:
-    def __init__(self, width=0.04, base_length=0.15, depth=0.1, mass=0.05,  ang_accel_max=10.0, ang_velocity_max=10.0, ang_damping_gain=20.0,  side_sign=1, attachment_offset_y=0.0,):
+    def __init__(self, width=0.04, base_length=0.15, depth=0.1, mass=0.05,  ang_accel_max=10.0, ang_velocity_max=10.0, ang_damping_gain=20.0, ext_spd_max=2.0, min_tent_fact=0.5, max_tent_fact=5,  side_sign=1, attachment_offset_y=0.0,):
         """
         Independent fin/tentacle component with abstract control interface trackers
         for both rotation (pivot) and elongation (extension).
@@ -18,7 +18,7 @@ class Fin:
         self.length = base_length
         self.relative_angle = 0.0
         
-        # Fin rotation control states
+        # Fin control states
         self.relative_angular_velocity = 0.0
         self.relative_angular_acceleration = 0.0
         self.linear_velocity = 0.0
@@ -27,6 +27,10 @@ class Fin:
         self.fin_angular_acceleration_max = ang_accel_max
         self.fin_angular_velocity_max = ang_velocity_max
         self.fin_angular_damping_gain = ang_damping_gain
+        self.fin_extension_speed_max = ext_spd_max
+
+        self.fin_min_factor = min_tent_fact
+        self.fin_max_factor = max_tent_fact
 
         # control requests (interface)
         self.requested_angular_acceleration = 0.0   

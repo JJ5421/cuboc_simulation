@@ -28,7 +28,7 @@ def draw_rotated_rect(surface, color, center_pixels, width_pixels, length_pixels
 
 def draw_thrust_line(screen, robot, ppm, config, body_forward):
 
-    if robot.thruster.throttle <= 0.0:
+    if robot.thruster.thrust <= 0.0:
         return
 
     plume_origin = (
@@ -36,10 +36,7 @@ def draw_thrust_line(screen, robot, ppm, config, body_forward):
         + body_forward * -robot.body_length / 2.0
     )
 
-    plume_tip = (
-        plume_origin
-        - body_forward * robot.thruster.throttle
-    )
+    plume_tip = (plume_origin - body_forward * 0.5 * robot.thruster.thrust / robot.thruster.max_thrust)
 
     pygame.draw.line(
         screen,
@@ -56,12 +53,55 @@ def draw_thrust_line(screen, robot, ppm, config, body_forward):
     )
 
 
-def render_scene(screen, world, config, ppm):
+def render_scene(screen, scenario, config, ppm):
 
-    robot = world.robot
+    robot = scenario.robot
 
     screen.fill((12, 50, 95))
 
+    # Draw waypoints.
+    if hasattr(scenario, "waypoints"):
+        font = pygame.font.Font(None, 24)
+        for index, waypoint in enumerate(scenario.waypoints):
+
+            if index < scenario.waypoint_index:
+                color = (0, 255, 0)
+            else:
+                color = (255, 0, 0)
+
+            center = (int(waypoint[0] * ppm),int(waypoint[1] * ppm))
+
+            pygame.draw.circle(screen,color,center,10)
+
+            text = font.render(str(index),True,(255, 255, 255))
+
+            text_rect = text.get_rect(center=center)
+
+            screen.blit(text,text_rect)
+
+    # Draw debris.
+    if hasattr(scenario, "debris"):
+
+        for debris in scenario.debris:
+
+            if not debris.is_active(scenario.time):
+                continue
+
+            position = debris.get_position(
+                scenario.time
+            )
+
+            pygame.draw.circle(
+                screen,
+                (120, 120, 120),
+                (
+                    int(position[0] * ppm),
+                    int(position[1] * ppm)
+                ),
+                int(debris.radius * ppm)
+            )
+
+    # Drawing the robot.
     cos_b = np.cos(robot.heading)
     sin_b = np.sin(robot.heading)
 

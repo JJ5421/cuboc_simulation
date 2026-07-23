@@ -11,7 +11,9 @@ class SimulationConfig:
 
         self.robot_type = "cuboc"
         self.controller_type = "manual"
-        self.scenario = "manual"
+        self.scenario = "straight_line"
+
+        self.waypoint_tolerance = 0.1
 
         # Numerical Settings
         self.dt = 0.01

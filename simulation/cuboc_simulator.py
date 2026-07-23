@@ -6,8 +6,8 @@ from scipy.integrate import solve_ivp
 
 class Simulator:
 
-    def __init__(self, world, physics_engine, config):
-        self.world = world
+    def __init__(self, scenario, physics_engine, config):
+        self.scenario = scenario
         self.physics_engine = physics_engine
         self.config = config
         self.maximum_events_per_step = 10
@@ -25,7 +25,7 @@ class Simulator:
             event.direction = direction
 
     def get_physics_derivatives(self, t, state_vector):
-        robot = self.world.robot
+        robot = self.scenario.robot
         robot.apply_state_vector(state_vector)
 
         left_angle = state_vector[6]
@@ -42,24 +42,16 @@ class Simulator:
         length_min = robot.cuboc_config.fin_base_length * 0.1
         length_max = robot.cuboc_config.fin_base_length * 2.5
 
-        # Fin angular accelerations
+        # Fin angular acceleration
         left_alpha = robot.left_fin.relative_angular_acceleration - robot.left_fin.fin_angular_damping_gain * left_omega *  np.abs(left_omega)
         right_alpha = robot.right_fin.relative_angular_acceleration - robot.right_fin.fin_angular_damping_gain * right_omega * np.abs(right_omega)
 
         left_alpha = float(np.clip(left_alpha, -robot.left_fin.fin_angular_acceleration_max, robot.left_fin.fin_angular_acceleration_max))
         right_alpha = float(np.clip(right_alpha, -robot.right_fin.fin_angular_acceleration_max, robot.right_fin.fin_angular_acceleration_max))
 
-        # Prevent acceleration farther through angular-velocity limits.
-        if left_omega >= robot.left_fin.fin_angular_velocity_max and left_alpha > 0.0:
-            left_alpha = 0.0
-        elif left_omega <= -robot.left_fin.fin_angular_velocity_max and left_alpha < 0.0:
-            left_alpha = 0.0
-        if right_omega >= robot.right_fin.fin_angular_velocity_max and right_alpha > 0.0:
-            right_alpha = 0.0
-        elif right_omega <= -robot.right_fin.fin_angular_velocity_max and right_alpha < 0.0:
-            right_alpha = 0.0
-
         # Prevent acceleration farther into an active hard stop.
+        # This is arguably not needed given the even handling, but it seems to still have some effect in nullifying acceleration into hard stops
+        # Note also that angular velocity max has not been included and it not used anymore... parameter still exists for implementation
         if left_angle <= angle_min and left_alpha < 0.0:
             left_alpha = 0.0
         elif left_angle >= angle_max and left_alpha > 0.0:
@@ -68,17 +60,6 @@ class Simulator:
             right_alpha = 0.0
         elif right_angle >= angle_max and right_alpha > 0.0:
             right_alpha = 0.0
-
-        # Do not allow an outward angular velocity while already at a stop.
-        if left_angle <= angle_min and left_omega < 0.0:
-            left_omega = 0.0
-        elif left_angle >= angle_max and left_omega > 0.0:
-            left_omega = 0.0
-
-        if right_angle <= angle_min and right_omega < 0.0:
-            right_omega = 0.0
-        elif right_angle >= angle_max and right_omega > 0.0:
-            right_omega = 0.0
 
         # Fin extension rates
         left_length_dot = robot.left_fin.linear_velocity
@@ -131,7 +112,7 @@ class Simulator:
         ], dtype=float)
 
     def apply_event_constraints(self, state, event_indices):
-        robot = self.world.robot
+        robot = self.scenario.robot
 
         angle_min = robot.cuboc_config.tentacle_angle_min
         angle_max = robot.cuboc_config.tentacle_angle_max
@@ -191,7 +172,8 @@ class Simulator:
         return state
 
     def step(self, dt):
-        robot = self.world.robot
+
+        robot = self.scenario.robot
 
         current_state = np.asarray(robot.build_state_vector(), dtype=float)
 
@@ -237,18 +219,6 @@ class Simulator:
 
             current_time = dt
 
-        # Final safety clamps against floating-point drift.
-        angle_min = robot.cuboc_config.tentacle_angle_min
-        angle_max = robot.cuboc_config.tentacle_angle_max
-
-        length_min = robot.cuboc_config.fin_base_length * 0.1
-        length_max = robot.cuboc_config.fin_base_length * 2.5
-
-        current_state[6] = float(np.clip(current_state[6], angle_min, angle_max))
-        current_state[8] = float(np.clip(current_state[8], length_min, length_max))
-        current_state[9] = float(np.clip(current_state[9], angle_min, angle_max))
-        current_state[11] = float(np.clip(current_state[11], length_min, length_max))
-
         robot.apply_state_vector(current_state)
 
         if abs(robot.angular_velocity) < 1e-8:
@@ -266,24 +236,48 @@ class Simulator:
             elif robot.position[index] > self.config.arena_size_meters:
                 robot.position[index] -= self.config.arena_size_meters
 
-        self.world.time += dt
+
+        self.scenario.time += dt
+
+        # We handle waypoint logic here:
+        if not hasattr(self.scenario, "waypoints"):
+            return False
+
+        if len(self.scenario.waypoints) == 0:
+            return False
+
+        distance = np.linalg.norm(robot.position - self.scenario.waypoints[self.scenario.waypoint_index])
+
+        if distance < self.scenario.waypoint_tolerance:
+            print(f"Reached waypoint " f"{self.scenario.waypoints[self.scenario.waypoint_index]}.")
+
+            self.scenario.waypoint_index += 1
+
+            if (self.scenario.waypoint_index >= len(self.scenario.waypoints)):
+                print("Final waypoint reached.")
+                return True
+
+        return False
+
+
+
 
     def left_angle_min_event(self, t, state):
         if state[7] >= 0.0:
             return 1.0
-        return (state[6] - self.world.robot.cuboc_config.tentacle_angle_min)
+        return (state[6] - self.scenario.robot.cuboc_config.tentacle_angle_min)
 
     def left_angle_max_event(self, t, state):
         if state[7] <= 0.0:
             return -1.0
-        return (state[6] - self.world.robot.cuboc_config.tentacle_angle_max)
+        return (state[6] - self.scenario.robot.cuboc_config.tentacle_angle_max)
 
     def right_angle_min_event(self, t, state):
         if state[10] >= 0.0:
             return 1.0
-        return (state[9] - self.world.robot.cuboc_config.tentacle_angle_min)
+        return (state[9] - self.scenario.robot.cuboc_config.tentacle_angle_min)
 
     def right_angle_max_event(self, t, state):
         if state[10] <= 0.0:
             return -1.0
-        return (state[9] - self.world.robot.cuboc_config.tentacle_angle_max)
+        return (state[9] - self.scenario.robot.cuboc_config.tentacle_angle_max)
